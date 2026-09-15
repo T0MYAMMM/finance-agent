@@ -88,3 +88,16 @@ def create_asset(
         f"🏦 Tracking {created['name']} ({kind}): {idr_short(amount)} on {short_date(valued_on)}."
     )
     return {"status": "created", "asset": created, "reply": reply}
+
+
+def account_balances(client: DoeeddClient, at: date) -> dict[str, Any]:
+    """What each account should hold according to doeedd (opening balance plus entries)."""
+    data = client.account_balances(at)
+    if not data["items"]:
+        return {"status": "ok", "reply": "No accounts yet.", "items": []}
+    lines = [f"💳 Balances on {short_date(at)} (from logged entries):"]
+    lines.extend(
+        f"• {item['account']['name']}: {idr_short(item['balance'])}" for item in data["items"]
+    )
+    lines.append("If one looks off, its opening balance or a missing entry is the usual cause.")
+    return {"status": "ok", "reply": "\n".join(lines), "items": data["items"]}

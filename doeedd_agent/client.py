@@ -294,6 +294,11 @@ class DoeeddClient:
         """One entity (transactions, budget_lines, assets, accounts, categories) as CSV text."""
         return self.send("GET", f"data/export/{entity}.csv").text
 
+    def account_balances(self, at: date, *, include_archived: bool = False) -> dict[str, Any]:
+        """Every account's balance on a date (opening balance plus non-deleted transactions)."""
+        params = {"at": at, "include_archived": include_archived}
+        return self.request("GET", "accounts/balances", params=params)
+
     def report_home(self, today: date) -> dict[str, Any]:
         """Payday, this month's remaining budget, recent entries and net worth."""
         return self.request("GET", "reports/home", params={"today": today})

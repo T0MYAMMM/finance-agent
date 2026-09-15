@@ -24,7 +24,7 @@ from .capture import CaptureRequest, EditRequest, Outcome, Recorder
 from .client import DoeeddClient, DoeeddError
 from .config import ConfigError, Settings, load_settings
 from .formatting import idr, short_date
-from .holdings import create_asset, list_assets, record_valuation
+from .holdings import account_balances, create_asset, list_assets, record_valuation
 from .migration import (
     apply_migration,
     expense_total,
@@ -482,6 +482,20 @@ def cmd_reconcile(app: App, args: argparse.Namespace) -> dict[str, Any]:
         report.extend(f"• {queries.row_line(names.compact(item))}" for item in result.extra)
     if not result.missing and not result.extra:
         report.append("✅ Everything matches.")
+    if args.closing_balance:
+        closing = parse_amount(args.closing_balance)
+        last_day = max(line.occurred_on for line in lines)
+        balances = app.client.account_balances(last_day, include_archived=True)["items"]
+        ours = next(
+            (item["balance"] for item in balances if item["account"]["id"] == account["id"]), None
+        )
+        if ours is not None:
+            gap = closing - ours
+            verdict = "matches" if gap == 0 else f"differs by {idr(abs(gap))}"
+            report.append(
+                f"Closing balance {last_day.isoformat()}: statement {idr(closing)}, "
+                f"doeedd {idr(ours)} ({verdict})."
+            )
     return {
         "status": "ok",
         "reply": "\n".join(report),
@@ -499,6 +513,11 @@ def cmd_reconcile(app: App, args: argparse.Namespace) -> dict[str, Any]:
         ],
         "extra": [names.compact(item) for item in result.extra],
     }
+
+
+def cmd_balances(app: App, args: argparse.Namespace) -> dict[str, Any]:
+    at = parse_date(args.at, app.today) if args.at else app.today
+    return account_balances(app.client, at)
 
 
 def cmd_migrate_sheets(app: App, args: argparse.Namespace) -> dict[str, Any]:
@@ -737,9 +756,13 @@ def build_parser() -> argparse.ArgumentParser:
         "reconcile", cmd_reconcile, "compare a statement (JSON lines) with doeedd for an account"
     )
     reconcile_command.add_argument("--account", required=True)
+    reconcile_command.add_argument("--closing-balance", dest="closing_balance")
     reconcile_command.add_argument(
         "--file", required=True, help='JSON list of {"date","amount","direction","description"}'
     )
+
+    balances = command("balances", cmd_balances, "account balances from logged entries")
+    balances.add_argument("--at", help="date (default today)")
 
     migrate = command("migrate-sheets", cmd_migrate_sheets, "move the Sheets ledger into doeedd")
     migrate.add_argument("--apply", action="store_true", help="write (default is a dry run)")

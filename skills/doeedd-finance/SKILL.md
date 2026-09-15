@@ -127,6 +127,24 @@ transactions", never a monthly figure.
 whether to add it, then `$DOEEDD create-asset --name <name> --amount <value> [--account <acc>]
 [--not-liquid]` (investments, deposits, property are not liquid).
 
+## Balances and statement reconciliation
+
+| owner says | run |
+|---|---|
+| saldo GoPay berapa (per catatan) | `$DOEEDD balances` (computed from logged entries; for the real bank balance ask for a screenshot and use `valuation`) |
+
+Reconciling a bank or e-wallet statement:
+
+1. The owner sends a statement (PDF or screenshot) for one account and period.
+2. Write every line to `/tmp/statement-<account>.json` as
+   `[{"date": "YYYY-MM-DD", "amount": 150000, "direction": "debit", "description": "..."}]`
+   (debit = money out, credit = money in). Include the closing balance if the statement shows one.
+3. `$DOEEDD reconcile --account <account> --file /tmp/statement-<account>.json [--closing-balance "<amount>"]`
+   and relay `reply`.
+4. Offer to add the missing lines by number; ask the category once for all of them, then one
+   `add` per line with its `--date`, `--amount`, `--account` and `--description`.
+   Delete the JSON file when done.
+
 ## Budget plan and export
 
 | owner says | run |
