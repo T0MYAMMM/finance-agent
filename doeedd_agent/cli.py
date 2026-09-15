@@ -14,7 +14,7 @@ import logging
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +23,8 @@ from .aliases import AliasStore
 from .capture import CaptureRequest, EditRequest, Outcome, Recorder
 from .client import DoeeddClient, DoeeddError
 from .config import ConfigError, Settings, load_settings
+from .formatting import short_date
+from .holdings import create_asset, list_assets, record_valuation
 from .migration import (
     apply_migration,
     expense_total,
@@ -30,6 +32,8 @@ from .migration import (
     plan_migration,
     read_ledger,
 )
+from .notify import SILENT, commit_notification, plan_notification
+from .notify_state import NotifyState
 from .outbox import Outbox
 from .parsing import AmbiguousError, ParseError, parse_amount, parse_date, today_in
 from .receipts import ReceiptUploadError, google_service, upload_receipt
@@ -48,6 +52,7 @@ class App:
     aliases: AliasStore
     recorder: Recorder
     today: date
+    notify: NotifyState
 
 
 def open_app(args: argparse.Namespace) -> App:
@@ -56,19 +61,21 @@ def open_app(args: argparse.Namespace) -> App:
     client = DoeeddClient(settings.base_url, settings.token)
     state_dir = settings.state_dir
     aliases = AliasStore(state_dir / "aliases.json")
+    notify = NotifyState(state_dir / "notify_state.json")
     recorder = Recorder(
         client,
         aliases,
         StateStore(state_dir / "state.json"),
         Outbox(state_dir / "outbox.json"),
         uploader=upload_receipt,
+        notify=notify,
     )
     today = (
         parse_date(args.today, today_in(settings.timezone))
         if getattr(args, "today", None)
         else today_in(settings.timezone)
     )
-    return App(settings, client, aliases, recorder, today)
+    return App(settings, client, aliases, recorder, today, notify)
 
 
 def emit(result: dict[str, Any], as_json: bool) -> None:
@@ -164,6 +171,8 @@ def cmd_find(app: App, args: argparse.Namespace) -> dict[str, Any]:
         filters["has_attachment"] = False
     if args.source:
         filters["source"] = args.source
+    if args.ref:
+        filters["external_ref"] = args.ref
     return queries.find(
         app.client,
         app.recorder.names(),
@@ -273,6 +282,96 @@ def cmd_seed(app: App, args: argparse.Namespace) -> dict[str, Any]:
     created = apply_seed(app.client, plan)
     total = len(created["categories"]) + len(created["accounts"])
     return {"status": "seeded", "created": created, "reply": f"Created {total} item(s)"}
+
+
+def cmd_review(app: App, args: argparse.Namespace) -> dict[str, Any]:
+    return queries.review(app.client, app.recorder.names(), args.limit)
+
+
+def cmd_approve(app: App, args: argparse.Namespace) -> dict[str, Any]:
+    if args.all:
+        ids = [row["id"] for row in app.client.transactions({"reviewed": False}, max_items=500)]
+    else:
+        ids = args.id or []
+    return app.recorder.approve(ids).to_dict()
+
+
+def cmd_receipts(app: App, args: argparse.Namespace) -> dict[str, Any]:
+    ids = app.recorder.target_ids(args.id)
+    if len(ids) != 1:
+        return {"status": "needs_input", "missing": ["id"], "reply": "Which entry? (pass --id)"}
+    transaction = app.client.get_transaction(ids[0])
+    return queries.receipts(app.client, app.recorder.names(), transaction)
+
+
+def cmd_create_category(app: App, args: argparse.Namespace) -> dict[str, Any]:
+    created = app.client.create_category({"name": args.name, "kind": args.kind})
+    reply = f"Added category {created['name']} ({created['kind']})."
+    return {"status": "created", "category": created, "reply": reply}
+
+
+def cmd_create_account(app: App, args: argparse.Namespace) -> dict[str, Any]:
+    body = {"name": args.name, "type": args.type, "is_liquid": not args.not_liquid}
+    created = app.client.create_account(body)
+    reply = f"Added account {created['name']} ({created['type']})."
+    return {"status": "created", "account": created, "reply": reply}
+
+
+def cmd_assets(app: App, args: argparse.Namespace) -> dict[str, Any]:
+    return list_assets(app.client)
+
+
+def cmd_valuation(app: App, args: argparse.Namespace) -> dict[str, Any]:
+    valued_on = parse_date(args.date, app.today) if args.date else app.today
+    return record_valuation(app.client, args.asset, parse_amount(args.amount), valued_on)
+
+
+def cmd_create_asset(app: App, args: argparse.Namespace) -> dict[str, Any]:
+    valued_on = parse_date(args.date, app.today) if args.date else app.today
+    return create_asset(
+        app.client,
+        app.recorder.names(),
+        args.name,
+        parse_amount(args.amount),
+        valued_on,
+        account=args.account,
+        liquid=not args.not_liquid,
+    )
+
+
+def cmd_notify(app: App, args: argparse.Namespace) -> dict[str, Any]:
+    now = datetime.now(app.settings.timezone)
+    if args.at:
+        now = datetime.fromisoformat(args.at).replace(tzinfo=app.settings.timezone)
+    notification = plan_notification(app.client, app.notify, now)
+    if notification is None:
+        return {"status": "silent", "reply": SILENT}
+    if args.dry_run:
+        return {"status": "would_send", "kind": notification.kind, "reply": notification.message}
+    commit_notification(app.notify, notification, now.date())
+    return {"status": "send", "kind": notification.kind, "reply": notification.message}
+
+
+def cmd_snooze(app: App, args: argparse.Namespace) -> dict[str, Any]:
+    until = app.today + timedelta(days=args.days - 1)
+    app.notify.snooze(until, app.today)
+    reply = f'🔕 No proactive messages until {short_date(until)}. Say "unsnooze" to resume.'
+    return {"status": "snoozed", "until": until.isoformat(), "reply": reply}
+
+
+def cmd_unsnooze(app: App, args: argparse.Namespace) -> dict[str, Any]:
+    app.notify.snooze(None, app.today)
+    return {"status": "resumed", "reply": "🔔 Proactive messages are back on."}
+
+
+def cmd_copy_plan(app: App, args: argparse.Namespace) -> dict[str, Any]:
+    year, month = _month(args.month, app.today)
+    app.client.copy_budget(year, month, overwrite=args.overwrite)
+    kept = "" if args.overwrite else " (lines already planned there were kept)"
+    return {
+        "status": "copied",
+        "reply": f"📋 Copied the {year}-{month:02d} plan to the next month{kept}.",
+    }
 
 
 def cmd_migrate_sheets(app: App, args: argparse.Namespace) -> dict[str, Any]:
@@ -397,6 +496,7 @@ def build_parser() -> argparse.ArgumentParser:
     find.add_argument("--unreviewed", action="store_true")
     find.add_argument("--no-receipt", dest="no_receipt", action="store_true")
     find.add_argument("--limit", type=int, default=20)
+    find.add_argument("--ref", help="external reference, e.g. telegram:<chat>:<message>:1")
 
     add = command("add", cmd_add, "record an expense, income or transfer")
     add.add_argument("--type", choices=("expense", "income", "transfer"), default="expense")
@@ -439,6 +539,47 @@ def build_parser() -> argparse.ArgumentParser:
 
     seed = command("seed", cmd_seed, "create missing default categories and accounts")
     seed.add_argument("--apply", action="store_true", help="write (default is a dry run)")
+
+    review = command("review", cmd_review, "entries nobody has reviewed yet")
+    review.add_argument("--limit", type=int, default=30)
+    approve = command("approve", cmd_approve, "mark entries as reviewed")
+    approve.add_argument("--all", action="store_true", help="every unreviewed entry")
+    approve.add_argument("--id", action="append", help="repeat for several entries")
+    receipts_command = command("receipts", cmd_receipts, "receipts linked to an entry")
+    receipts_command.add_argument("--id", help="default: the last capture")
+    new_category = command("create-category", cmd_create_category, "add a category (ask first)")
+    new_category.add_argument("--name", required=True)
+    new_category.add_argument("--kind", required=True, choices=("income", "need", "want", "saving"))
+    new_account = command("create-account", cmd_create_account, "add an account (ask first)")
+    new_account.add_argument("--name", required=True)
+    new_account.add_argument(
+        "--type", required=True, choices=("bank", "cash", "ewallet", "investment", "other")
+    )
+    new_account.add_argument("--not-liquid", dest="not_liquid", action="store_true")
+
+    command("assets", cmd_assets, "assets with their latest values")
+    valuation = command(
+        "valuation", cmd_valuation, "record an asset's value, e.g. saldo BCA 12,5jt"
+    )
+    valuation.add_argument("--asset", required=True)
+    valuation.add_argument("--amount", required=True)
+    valuation.add_argument("--date")
+    new_asset = command("create-asset", cmd_create_asset, "start tracking an asset (ask first)")
+    new_asset.add_argument("--name", required=True)
+    new_asset.add_argument("--amount", required=True, help="current value")
+    new_asset.add_argument("--account")
+    new_asset.add_argument("--not-liquid", dest="not_liquid", action="store_true")
+    new_asset.add_argument("--date")
+
+    notify = command("notify", cmd_notify, "the one proactive message due now, or [SILENT]")
+    notify.add_argument("--dry-run", dest="dry_run", action="store_true")
+    notify.add_argument("--at", help="pretend it is this local time, e.g. 2026-09-20T19:00")
+    snooze = command("snooze", cmd_snooze, "pause proactive messages")
+    snooze.add_argument("--days", type=int, default=7)
+    command("unsnooze", cmd_unsnooze, "resume proactive messages")
+    copy_plan = command("copy-plan", cmd_copy_plan, "copy a month's budget plan to the next month")
+    copy_plan.add_argument("--month", help="YYYY-MM to copy from (default this month)")
+    copy_plan.add_argument("--overwrite", action="store_true")
 
     migrate = command("migrate-sheets", cmd_migrate_sheets, "move the Sheets ledger into doeedd")
     migrate.add_argument("--apply", action="store_true", help="write (default is a dry run)")

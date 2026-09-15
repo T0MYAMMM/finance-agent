@@ -20,6 +20,7 @@ from typing import Any
 from .aliases import AliasStore, normalize, resolve
 from .client import DoeeddClient, DoeeddError
 from .formatting import idr, percent, short_date
+from .notify_state import NotifyState
 from .outbox import Outbox
 from .receipts import drive_link
 from .state import StateStore
@@ -140,12 +141,14 @@ class Recorder:
         state: StateStore,
         outbox: Outbox,
         uploader: Uploader | None = None,
+        notify: NotifyState | None = None,
     ) -> None:
         self.client = client
         self.aliases = aliases
         self.state = state
         self.outbox = outbox
         self.uploader = uploader
+        self.notify = notify
 
     def names(self) -> Names:
         """Current doeedd categories and accounts (active only)."""
@@ -375,6 +378,12 @@ class Recorder:
         receipt: dict[str, Any] | None = None,
     ) -> Outcome:
         usage = None if replayed else self._usage(transaction, names)
+        if usage and usage["status"] in ("warn", "over") and self.notify is not None:
+            # The capture reply already shows the warning; the daily check must not repeat it.
+            occurred = date.fromisoformat(transaction["occurred_on"])
+            self.notify.mark_alerted(
+                f"{occurred:%Y-%m}", usage["category"], usage["status"], occurred
+            )
         return Outcome(
             "replayed" if replayed else "created",
             reply=_capture_reply(transaction, names, usage, replayed=replayed, receipt=receipt),
@@ -539,6 +548,14 @@ class Recorder:
             transaction=names.compact(transaction),
             receipt=receipt,
         )
+
+    def approve(self, ids: list[str]) -> Outcome:
+        """Mark entries as reviewed (the weekly review's "approve all")."""
+        if not ids:
+            return Outcome("nothing", reply="Nothing to approve.")
+        updated = self.client.bulk_review(ids, True)["updated"]
+        noun = "entry" if updated == 1 else "entries"
+        return Outcome("reviewed", reply=f"👍 Marked {updated} {noun} as reviewed.")
 
     def flush(self) -> Outcome:
         """Send queued writes; stop at the first that still cannot reach doeedd."""

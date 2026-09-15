@@ -248,9 +248,31 @@ class DoeeddClient:
         """Link a file reference (a Drive receipt) to a transaction."""
         return self.request("POST", f"transactions/{transaction_id}/attachments", json=dict(body))
 
+    def bulk_review(self, ids: list[str], is_reviewed: bool) -> dict[str, Any]:
+        """Set the reviewed flag on up to 500 transactions at once."""
+        body = {"ids": ids, "is_reviewed": is_reviewed}
+        return self.request("POST", "transactions/bulk-review", json=body)
+
     def attachments(self, transaction_id: str) -> list[dict[str, Any]]:
         """File references of a transaction."""
         return self.request("GET", f"transactions/{transaction_id}/attachments")["items"]
+
+    def assets(self, *, include_archived: bool = False) -> list[dict[str, Any]]:
+        """Assets with their latest value."""
+        return self.list_all("assets", {"include_archived": include_archived})
+
+    def create_asset(self, body: Mapping[str, Any]) -> dict[str, Any]:
+        """Create an asset together with its first valuation."""
+        return self.request("POST", "assets", json=dict(body))
+
+    def add_valuation(self, asset_id: str, body: Mapping[str, Any]) -> dict[str, Any]:
+        """Record a dated value; a second valuation on the same day replaces the first."""
+        return self.request("POST", f"assets/{asset_id}/valuations", json=dict(body))
+
+    def copy_budget(self, year: int, month: int, *, overwrite: bool = False) -> Any:
+        """Copy a month's plan to the next month (non-zero target lines kept unless overwrite)."""
+        body = {"to": "next", "overwrite": overwrite}
+        return self.request("POST", f"budgets/{year}/{month}/copy", json=body)
 
     def report_home(self, today: date) -> dict[str, Any]:
         """Payday, this month's remaining budget, recent entries and net worth."""

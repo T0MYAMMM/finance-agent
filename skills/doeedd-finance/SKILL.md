@@ -109,10 +109,37 @@ happens once. If `edit` says `needs_input` with `id`, find the entry with `find`
 Relay `reply`; offer more detail only if asked. For `find`, a total is only "the sum of the listed
 transactions", never a monthly figure.
 
+## Review, receipts, balances
+
+| owner says | run |
+|---|---|
+| review / cek transaksi | `$DOEEDD review` → relay the numbered list |
+| approve all / oke semua | `$DOEEDD approve --all` |
+| approve 1 dan 3 | `$DOEEDD approve --id <id of 1> --id <id of 3>` (ids from the `review` items) |
+| struknya mana / receipt for that entry | `$DOEEDD receipts [--id <id>]` |
+| mana yang belum ada struk | `$DOEEDD find --no-receipt --month YYYY-MM` |
+| saldo BCA 12,5jt / balance screenshot | `$DOEEDD valuation --asset BCA --amount "12,5jt"` |
+| aset / saldo semua | `$DOEEDD assets`; net worth: `$DOEEDD networth` |
+| diam dulu seminggu / stop reminders | `$DOEEDD snooze --days 7`; resume: `$DOEEDD unsnooze` |
+| copy plan ke bulan depan (after the payday message) | `$DOEEDD copy-plan` |
+
+`valuation` answering `needs_input` with `missing: asset` means the asset is not tracked yet: ask
+whether to add it, then `$DOEEDD create-asset --name <name> --amount <value> [--account <acc>]
+[--not-liquid]` (investments, deposits, property are not liquid).
+
+## Scheduled check (Hermes cron)
+
+The daily cron job runs `$HOME/.hermes/hermes-agent/venv/bin/python $HOME/finance-system/doeedd.py
+notify` and delivers its output verbatim. It already enforces quiet hours, one message a day,
+once-per-month alerts and snooze, and prints `[SILENT]` when nothing is due. Never add to or
+rephrase that output, and never send a scheduled message any other way.
+
 ## Always ask first
 
-New categories or accounts, budget or goal changes, deleting anything other than the last
-capture, and anything dated in the future (`missing: date` → confirm, then `--allow-future`).
+New categories (`create-category --name <n> --kind need|want|saving|income`), new accounts
+(`create-account --name <n> --type bank|cash|ewallet|investment|other`), new assets, budget or
+goal changes, `copy-plan`, deleting anything other than the last capture, and anything dated in
+the future (`missing: date` → confirm, then `--allow-future`).
 
 ## Common Pitfalls
 
