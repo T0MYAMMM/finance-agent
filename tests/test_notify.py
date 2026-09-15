@@ -206,3 +206,19 @@ def test_assets_list_valuation_and_creation() -> None:
         "valued_on": "2026-09-15",
         "account_id": "acc-bca",
     }
+
+
+def test_failure_counter_counts_in_a_row_and_resets(state: NotifyState) -> None:
+    today = date(2026, 9, 16)
+    assert [state.record_failure(today) for _ in range(3)] == [1, 2, 3]
+    state.reset_failures(today)
+    assert state.record_failure(today) == 1
+
+
+def test_cli_prints_nothing_for_an_empty_reply(capsys: pytest.CaptureFixture[str]) -> None:
+    from doeedd_agent.cli import emit
+
+    emit({"status": "silent", "reply": ""}, as_json=False)
+    assert capsys.readouterr().out == ""
+    emit({"status": "silent", "reply": "[SILENT]"}, as_json=False)
+    assert capsys.readouterr().out == "[SILENT]\n"

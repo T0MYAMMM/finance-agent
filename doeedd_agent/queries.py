@@ -85,11 +85,11 @@ def monthly(
     income = idr_short(data["actual_income"])
     if data["planned_expenses"]:
         header = (
-            f"📊 {year}-{month:02d}: spent {spent} of {idr_short(data['planned_expenses'])} "
+            f"📊 {year}-{month:02d}: spent {total} of {idr_short(data['planned_expenses'])} "
             f"planned · income {income}"
         )
     else:
-        header = f"📊 {year}-{month:02d}: spent {spent}, no budget planned · income {income}"
+        header = f"📊 {year}-{month:02d}: spent {total}, no budget planned · income {income}"
     lines = [header]
     lines.extend(f"• {_category_line(r)}" for r in spent[:3])
     over = [r["category"]["name"] for r in rows if r["status"] == "over"]
