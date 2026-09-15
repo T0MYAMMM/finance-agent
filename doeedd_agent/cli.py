@@ -19,11 +19,11 @@ from pathlib import Path
 from typing import Any
 
 from . import queries
-from .aliases import AliasStore
+from .aliases import AliasStore, resolve
 from .capture import CaptureRequest, EditRequest, Outcome, Recorder
 from .client import DoeeddClient, DoeeddError
 from .config import ConfigError, Settings, load_settings
-from .formatting import short_date
+from .formatting import idr, short_date
 from .holdings import create_asset, list_assets, record_valuation
 from .migration import (
     apply_migration,
@@ -38,6 +38,7 @@ from .outbox import Outbox
 from .parsing import AmbiguousError, ParseError, parse_amount, parse_date, today_in
 from .planning import move_budget, set_budget, show_plan
 from .receipts import ReceiptUploadError, google_service, upload_receipt
+from .reconcile import load_statement, reconcile, statement_window
 from .seed import apply_seed, plan_seed
 from .state import StateStore
 
@@ -451,6 +452,55 @@ def cmd_export(app: App, args: argparse.Namespace) -> dict[str, Any]:
     return {"status": "exported", "path": str(path), "rows": rows, "reply": reply}
 
 
+def cmd_reconcile(app: App, args: argparse.Namespace) -> dict[str, Any]:
+    names = app.recorder.names()
+    match = resolve(args.account, [item["name"] for item in names.accounts], {})
+    account = next((item for item in names.accounts if item["name"] == match.name), None)
+    if account is None:
+        options = {"account": [item["name"] for item in names.accounts]}
+        reply = f"No account called {args.account!r}."
+        return {"status": "needs_input", "missing": ["account"], "options": options, "reply": reply}
+    lines = load_statement(Path(args.file), app.today)
+    start, end = statement_window(lines)
+    filters = {"account_id": account["id"], "from": start, "to": end}
+    transactions = app.client.transactions(filters, max_items=2000)
+    result = reconcile(lines, transactions, account["id"])
+
+    report = [
+        f"🧾 {account['name']} statement {start.isoformat()}–{end.isoformat()}: {len(lines)} "
+        f"line(s), {len(result.matched)} match doeedd."
+    ]
+    if result.missing:
+        report.append(f"Missing in doeedd ({len(result.missing)}):")
+        report.extend(
+            f"{line.number}. {line.occurred_on.isoformat()} {idr(line.amount)} "
+            f"{line.direction} {line.description}".rstrip()
+            for line in result.missing
+        )
+    if result.extra:
+        report.append(f"In doeedd but not on the statement ({len(result.extra)}):")
+        report.extend(f"• {queries.row_line(names.compact(item))}" for item in result.extra)
+    if not result.missing and not result.extra:
+        report.append("✅ Everything matches.")
+    return {
+        "status": "ok",
+        "reply": "\n".join(report),
+        "account": account["name"],
+        "matched": len(result.matched),
+        "missing": [
+            {
+                "number": line.number,
+                "date": line.occurred_on.isoformat(),
+                "amount": line.amount,
+                "direction": line.direction,
+                "description": line.description,
+            }
+            for line in result.missing
+        ],
+        "extra": [names.compact(item) for item in result.extra],
+    }
+
+
 def cmd_migrate_sheets(app: App, args: argparse.Namespace) -> dict[str, Any]:
     """Move the Personal Finance Tracker ledger into doeedd (dry run unless --apply)."""
     spreadsheet_id = args.spreadsheet_id or ledger_spreadsheet_id()
@@ -681,6 +731,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--entity",
         default="transactions",
         choices=("transactions", "budget_lines", "assets", "accounts", "categories"),
+    )
+
+    reconcile_command = command(
+        "reconcile", cmd_reconcile, "compare a statement (JSON lines) with doeedd for an account"
+    )
+    reconcile_command.add_argument("--account", required=True)
+    reconcile_command.add_argument(
+        "--file", required=True, help='JSON list of {"date","amount","direction","description"}'
     )
 
     migrate = command("migrate-sheets", cmd_migrate_sheets, "move the Sheets ledger into doeedd")
