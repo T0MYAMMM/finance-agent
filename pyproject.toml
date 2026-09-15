@@ -1,0 +1,21 @@
+[project]
+name = "finance-agent"
+version = "0.2.0"
+description = "Hermes finance assistant: doeedd client, CLI and receipt helpers"
+requires-python = ">=3.11"
+dependencies = ["httpx>=0.27"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+# The original Sheets scripts are kept unchanged until the cutover retires them.
+extend-exclude = ["finance.py", "build_finance_system.py", "gws_auth.py"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
