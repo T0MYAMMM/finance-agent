@@ -66,10 +66,31 @@ $PY doeedd.py undo | restore | edit --category shopping --learn
 $PY doeedd.py home | monthly [--category food] | summary | trend | networth | goals
 $PY doeedd.py find --q grab --from senin [--no-receipt]
 $PY doeedd.py flush                                    # send writes queued while offline
+$PY doeedd.py review | approve --all | approve --id <id>   # weekly review of new entries
+$PY doeedd.py receipts [--id <id>]                     # Drive links behind an entry
+$PY doeedd.py assets | valuation --asset BCA --amount 12,5jt | create-asset --name …
+$PY doeedd.py notify [--dry-run] | snooze --days 7 | unsnooze   # proactive messages
+$PY doeedd.py copy-plan [--month YYYY-MM]              # copy a budget plan to the next month
 $PY doeedd.py migrate-sheets [--apply]                 # one-time ledger move (dry run by default)
 ```
 
 Add `--json` for machine-readable output: every command returns `status` and `reply`.
+
+## Daily check (Hermes cron)
+
+A no-agent Hermes cron job, **"doeedd daily check"**, runs `0 20 * * *` in the VM's timezone
+(Asia/Shanghai, i.e. 19:00 in Jakarta) and delivers to Telegram. It executes
+`~/.hermes/scripts/doeedd_notify.py`, which calls `doeedd.py notify --empty-when-silent`:
+
+- at most one message a day: budget alert, then payday, then the Sunday digest, then the
+  balance prompt on the 1st;
+- quiet hours 21:30–07:00 WIB, snooze, and budget alerts once per category and level per month
+  (a warning already shown in a capture reply counts);
+- empty output (nothing delivered) when nothing is due; a doeedd outage stays silent until the
+  third failed check in a row.
+
+State lives in `~/.hermes/doeedd/notify_state.json`. Inspect with
+`hermes cron list` / `hermes cron runs`; preview with `$PY doeedd.py notify --dry-run`.
 
 ## Development
 

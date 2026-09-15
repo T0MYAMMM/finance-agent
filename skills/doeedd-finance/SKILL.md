@@ -129,10 +129,12 @@ whether to add it, then `$DOEEDD create-asset --name <name> --amount <value> [--
 
 ## Scheduled check (Hermes cron)
 
-The daily cron job runs `$HOME/.hermes/hermes-agent/venv/bin/python $HOME/finance-system/doeedd.py
-notify` and delivers its output verbatim. It already enforces quiet hours, one message a day,
-once-per-month alerts and snooze, and prints `[SILENT]` when nothing is due. Never add to or
-rephrase that output, and never send a scheduled message any other way.
+A Hermes cron job ("doeedd daily check", 19:00 WIB, no agent) runs
+`~/.hermes/scripts/doeedd_notify.py`, which calls `doeedd.py notify --empty-when-silent` and
+delivers its output verbatim; empty output means nothing is sent. The CLI already enforces quiet
+hours, one message a day, once-per-month alerts and snooze. Never send scheduled finance messages
+any other way. When the owner answers one ("budget", "review", a balance, "copy"), handle it with
+the commands above.
 
 ## Always ask first
 
