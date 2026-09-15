@@ -81,10 +81,16 @@ def monthly(
         return {"status": "ok", "reply": _category_line(row), "data": row}
 
     spent = sorted((r for r in rows if r["actual"]), key=lambda r: r["actual"], reverse=True)
-    lines = [
-        f"📊 {year}-{month:02d}: spent {idr_short(data['actual_expense'])} of "
-        f"{idr_short(data['planned_expenses'])} planned · income {idr_short(data['actual_income'])}"
-    ]
+    total = idr_short(data["actual_expense"])
+    income = idr_short(data["actual_income"])
+    if data["planned_expenses"]:
+        header = (
+            f"📊 {year}-{month:02d}: spent {spent} of {idr_short(data['planned_expenses'])} "
+            f"planned · income {income}"
+        )
+    else:
+        header = f"📊 {year}-{month:02d}: spent {spent}, no budget planned · income {income}"
+    lines = [header]
     lines.extend(f"• {_category_line(r)}" for r in spent[:3])
     over = [r["category"]["name"] for r in rows if r["status"] == "over"]
     if over:
@@ -195,3 +201,37 @@ def find(
         "items": items,
         "listed_expense_total": total,
     }
+
+
+def review(client: DoeeddClient, names: Names, limit: int = 30) -> dict[str, Any]:
+    """Entries nobody has looked at yet, newest first, numbered for a quick reply."""
+    items = [
+        names.compact(row) for row in client.transactions({"reviewed": False}, max_items=limit)
+    ]
+    if not items:
+        return {"status": "ok", "reply": "✅ Nothing to review.", "items": []}
+    noun = "entry" if len(items) == 1 else "entries"
+    lines = [f"🧾 {len(items)} {noun} to review:"]
+    lines.extend(f"{number}. {row_line(item)}" for number, item in enumerate(items, start=1))
+    lines.append('Reply "approve all", or tell me which numbers to fix.')
+    return {"status": "ok", "reply": "\n".join(lines), "items": items}
+
+
+def receipts(client: DoeeddClient, names: Names, transaction: dict[str, Any]) -> dict[str, Any]:
+    """Receipt links of one transaction."""
+    items = client.attachments(transaction["id"])
+    line = row_line(names.compact(transaction))
+    if not items:
+        return {"status": "ok", "reply": f"No receipt linked to {line}.", "items": []}
+    links = [f"• {item.get('filename') or 'receipt'}: {item['url']}" for item in items]
+    return {"status": "ok", "reply": "\n".join([f"📎 {line}", *links]), "items": items}
+
+
+def row_line(item: dict[str, Any]) -> str:
+    """``2026-09-14 Rp10.000 Food Tomoro`` or ``2026-09-13 Rp500.000 BCA → GoPay Top-up``."""
+    if item["type"] == "transfer":
+        where = f"{item['account']} → {item['to_account']}"
+    else:
+        where = item["category"] or ""
+    label = item.get("merchant") or item.get("description") or ""
+    return " ".join(part for part in (item["date"], idr(item["amount"]), where, label) if part)
