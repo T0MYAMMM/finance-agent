@@ -23,8 +23,6 @@ from .aliases import AliasStore
 from .capture import CaptureRequest, EditRequest, Outcome, Recorder
 from .client import DoeeddClient, DoeeddError
 from .config import ConfigError, Settings, load_settings
-from .outbox import Outbox
-from .parsing import AmbiguousError, ParseError, parse_amount, parse_date, today_in
 from .migration import (
     apply_migration,
     expense_total,
@@ -32,6 +30,8 @@ from .migration import (
     plan_migration,
     read_ledger,
 )
+from .outbox import Outbox
+from .parsing import AmbiguousError, ParseError, parse_amount, parse_date, today_in
 from .receipts import ReceiptUploadError, google_service, upload_receipt
 from .seed import apply_seed, plan_seed
 from .state import StateStore
@@ -326,7 +326,8 @@ def cmd_migrate_sheets(app: App, args: argparse.Namespace) -> dict[str, Any]:
         == verification["doeedd_imported_expense_total"]
     )
     reply = (
-        f"Migrated {len(result['created'])} row(s) ({len(result['already_present'])} already there), "
+        f"Migrated {len(result['created'])} row(s) "
+        f"({len(result['already_present'])} already there), "
         f"linked {result['receipts_linked']} receipt(s); totals match: {verification['matches']}."
     )
     if skipped_lines:
