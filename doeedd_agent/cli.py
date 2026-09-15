@@ -82,8 +82,11 @@ def emit(result: dict[str, Any], as_json: bool) -> None:
     """Print a result for the skill (JSON) or a person (reply text)."""
     if as_json:
         print(json.dumps(result, ensure_ascii=False, default=str))
+    elif "reply" in result:
+        if result["reply"]:
+            print(result["reply"])
     else:
-        print(result.get("reply") or json.dumps(result, ensure_ascii=False, indent=2, default=str))
+        print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
 
 
 def _month(text: str | None, today: date) -> tuple[int, int]:
@@ -339,13 +342,31 @@ def cmd_create_asset(app: App, args: argparse.Namespace) -> dict[str, Any]:
     )
 
 
+FAILURE_ALERT_AFTER = 3
+
+
 def cmd_notify(app: App, args: argparse.Namespace) -> dict[str, Any]:
     now = datetime.now(app.settings.timezone)
     if args.at:
         now = datetime.fromisoformat(args.at).replace(tzinfo=app.settings.timezone)
-    notification = plan_notification(app.client, app.notify, now)
+    silent = "" if args.empty_when_silent else SILENT
+    try:
+        notification = plan_notification(app.client, app.notify, now)
+    except DoeeddError as error:
+        if not args.empty_when_silent:
+            raise
+        failures = app.notify.record_failure(now.date())
+        log.warning("notify: doeedd check failed (%s), %d in a row", error.kind, failures)
+        if failures == FAILURE_ALERT_AFTER:
+            reply = (
+                "⚠️ I couldn't reach doeedd for the last 3 scheduled checks. "
+                "New entries still queue safely and will sync when it is back."
+            )
+            return {"status": "send", "kind": "doeedd_unreachable", "reply": reply}
+        return {"status": "silent", "reply": silent}
+    app.notify.reset_failures(now.date())
     if notification is None:
-        return {"status": "silent", "reply": SILENT}
+        return {"status": "silent", "reply": silent}
     if args.dry_run:
         return {"status": "would_send", "kind": notification.kind, "reply": notification.message}
     commit_notification(app.notify, notification, now.date())
@@ -366,12 +387,13 @@ def cmd_unsnooze(app: App, args: argparse.Namespace) -> dict[str, Any]:
 
 def cmd_copy_plan(app: App, args: argparse.Namespace) -> dict[str, Any]:
     year, month = _month(args.month, app.today)
-    app.client.copy_budget(year, month, overwrite=args.overwrite)
-    kept = "" if args.overwrite else " (lines already planned there were kept)"
-    return {
-        "status": "copied",
-        "reply": f"📋 Copied the {year}-{month:02d} plan to the next month{kept}.",
-    }
+    result = app.client.copy_budget(year, month, overwrite=args.overwrite)
+    copied = sum(target["lines_copied"] for target in result["targets"])
+    kept = sum(target["lines_skipped"] for target in result["targets"])
+    reply = f"📋 Copied {copied} budget line(s) from {year}-{month:02d} to the next month."
+    if kept:
+        reply += f" Kept {kept} line(s) that were already planned there."
+    return {"status": "copied", "reply": reply, "result": result}
 
 
 def cmd_migrate_sheets(app: App, args: argparse.Namespace) -> dict[str, Any]:
@@ -573,6 +595,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     notify = command("notify", cmd_notify, "the one proactive message due now, or [SILENT]")
     notify.add_argument("--dry-run", dest="dry_run", action="store_true")
+    notify.add_argument(
+        "--empty-when-silent",
+        dest="empty_when_silent",
+        action="store_true",
+        help="print nothing instead of [SILENT] (Hermes no-agent cron delivers stdout verbatim)",
+    )
     notify.add_argument("--at", help="pretend it is this local time, e.g. 2026-09-20T19:00")
     snooze = command("snooze", cmd_snooze, "pause proactive messages")
     snooze.add_argument("--days", type=int, default=7)

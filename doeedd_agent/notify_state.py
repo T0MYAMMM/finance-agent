@@ -73,3 +73,16 @@ class NotifyState:
         else:
             data["snoozed_until"] = until.isoformat()
         self._save(data, today)
+
+    def record_failure(self, today: date) -> int:
+        """Count a scheduled check that could not reach doeedd; returns failures in a row."""
+        data = self._load()
+        data["failures"] = int(data.get("failures", 0)) + 1
+        self._save(data, today)
+        return data["failures"]
+
+    def reset_failures(self, today: date) -> None:
+        """A check reached doeedd again."""
+        data = self._load()
+        if data.pop("failures", None) is not None:
+            self._save(data, today)
