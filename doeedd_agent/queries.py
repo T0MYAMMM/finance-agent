@@ -40,9 +40,17 @@ def home(client: DoeeddClient, today: date) -> dict[str, Any]:
     data = client.report_home(today)
     month = data["month"]
     payday = data["payday"]
+    month_name = MONTH_ABBREVIATIONS[today.month - 1]
+    spent = idr_short(month["actual_expense"])
+    if month["planned_expenses"]:
+        budget = (
+            f"💰 {month_name}: spent {spent} of {idr_short(month['planned_expenses'])} planned · "
+            f"{idr_short(month['remaining'])} left"
+        )
+    else:
+        budget = f"💰 {month_name}: spent {spent}; no budget planned for this month yet"
     lines = [
-        f"💰 {MONTH_ABBREVIATIONS[today.month - 1]}: spent {idr_short(month['actual_expense'])} "
-        f"of {idr_short(month['planned_expenses'])} planned · {idr_short(month['remaining'])} left",
+        budget,
         f"📅 Payday in {payday['days_until']} day(s) "
         f"({short_date(date.fromisoformat(payday['date']))})",
     ]

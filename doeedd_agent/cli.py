@@ -25,7 +25,14 @@ from .client import DoeeddClient, DoeeddError
 from .config import ConfigError, Settings, load_settings
 from .outbox import Outbox
 from .parsing import AmbiguousError, ParseError, parse_amount, parse_date, today_in
-from .receipts import ReceiptUploadError, upload_receipt
+from .migration import (
+    apply_migration,
+    expense_total,
+    ledger_spreadsheet_id,
+    plan_migration,
+    read_ledger,
+)
+from .receipts import ReceiptUploadError, google_service, upload_receipt
 from .seed import apply_seed, plan_seed
 from .state import StateStore
 
@@ -268,6 +275,65 @@ def cmd_seed(app: App, args: argparse.Namespace) -> dict[str, Any]:
     return {"status": "seeded", "created": created, "reply": f"Created {total} item(s)"}
 
 
+def cmd_migrate_sheets(app: App, args: argparse.Namespace) -> dict[str, Any]:
+    """Move the Personal Finance Tracker ledger into doeedd (dry run unless --apply)."""
+    spreadsheet_id = args.spreadsheet_id or ledger_spreadsheet_id()
+    rows = read_ledger(google_service("sheets", "v4"), spreadsheet_id)
+    names = app.recorder.names()
+    planned, skipped = plan_migration(rows, names, app.aliases.merged())
+    report: dict[str, Any] = {
+        "ledger_rows": len(rows),
+        "ready": [
+            {
+                "ref": row.ref,
+                "line": f"{row.body['occurred_on']} {row.body['amount']} "
+                f"{names.name(row.body['category_id']) or 'transfer'} "
+                f"{names.name(row.body['account_id'])} {row.body['merchant'] or ''}".rstrip(),
+                "receipt": row.attachment is not None,
+                "warnings": row.warnings,
+            }
+            for row in planned
+        ],
+        "skipped": [
+            {"ref": row.ref, "sheet_row": row.sheet_row, "reasons": row.reasons} for row in skipped
+        ],
+    }
+    skipped_lines = [
+        f"{row.ref} (row {row.sheet_row}): {'; '.join(row.reasons)}" for row in skipped
+    ]
+    if not args.apply:
+        reply = f"Dry run: {len(planned)} of {len(rows)} ledger rows ready."
+        if skipped_lines:
+            reply += " Needs a decision: " + " | ".join(skipped_lines)
+        return {"status": "dry_run", **report, "reply": reply}
+
+    result = apply_migration(app.client, planned)
+    imported = [
+        item
+        for item in app.client.transactions({"source": "import"})
+        if (item.get("external_ref") or "").startswith("sheets:") and item["type"] == "expense"
+    ]
+    skipped_refs = {row.ref for row in skipped}
+    verification = {
+        "ledger_expense_total": expense_total(rows),
+        "skipped_expense_total": expense_total(
+            [row for row in rows if str(row.get("transaction_id") or "") in skipped_refs]
+        ),
+        "doeedd_imported_expense_total": sum(item["amount"] for item in imported),
+    }
+    verification["matches"] = (
+        verification["ledger_expense_total"] - verification["skipped_expense_total"]
+        == verification["doeedd_imported_expense_total"]
+    )
+    reply = (
+        f"Migrated {len(result['created'])} row(s) ({len(result['already_present'])} already there), "
+        f"linked {result['receipts_linked']} receipt(s); totals match: {verification['matches']}."
+    )
+    if skipped_lines:
+        reply += " Still needs a decision: " + " | ".join(skipped_lines)
+    return {"status": "migrated", **report, **result, "verification": verification, "reply": reply}
+
+
 # -- parser -----------------------------------------------------------------------------------
 
 
@@ -372,6 +438,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     seed = command("seed", cmd_seed, "create missing default categories and accounts")
     seed.add_argument("--apply", action="store_true", help="write (default is a dry run)")
+
+    migrate = command("migrate-sheets", cmd_migrate_sheets, "move the Sheets ledger into doeedd")
+    migrate.add_argument("--apply", action="store_true", help="write (default is a dry run)")
+    migrate.add_argument("--spreadsheet-id", dest="spreadsheet_id")
     return parser
 
 

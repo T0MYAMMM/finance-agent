@@ -70,8 +70,8 @@ def root_folder_id(config_path: Path = CONFIG_PATH) -> str:
         raise ReceiptUploadError(f"root_folder_id missing from {config_path}") from exc
 
 
-def drive_service() -> Any:
-    """A Drive v3 client authorised by Hermes's google-workspace skill."""
+def google_service(api: str, version: str) -> Any:
+    """A Google API client authorised by Hermes's google-workspace skill."""
     scripts = next((path for path in _SKILL_SCRIPT_DIRS if path.exists()), None)
     if scripts is None:
         raise ReceiptUploadError("google-workspace skill scripts not found")
@@ -81,7 +81,12 @@ def drive_service() -> Any:
         import google_api  # type: ignore[import-not-found]
     except ImportError as exc:
         raise ReceiptUploadError("google-workspace skill could not be imported") from exc
-    return google_api.build_service("drive", "v3")
+    return google_api.build_service(api, version)
+
+
+def drive_service() -> Any:
+    """A Drive v3 client."""
+    return google_service("drive", "v3")
 
 
 def find_or_create_folder(drive: Any, name: str, parent_id: str) -> str:
