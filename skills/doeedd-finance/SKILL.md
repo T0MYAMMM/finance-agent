@@ -127,6 +127,20 @@ transactions", never a monthly figure.
 whether to add it, then `$DOEEDD create-asset --name <name> --amount <value> [--account <acc>]
 [--not-liquid]` (investments, deposits, property are not liquid).
 
+## Budget plan and export
+
+| owner says | run |
+|---|---|
+| plan bulan ini / budget oktober | `$DOEEDD plan [--month YYYY-MM]` |
+| budget makan oktober 1,8jt | ask "Set Food for Oct to Rp1,8jt?" → on yes `$DOEEDD plan-set --month 2026-10 --line "makan=1,8jt"` |
+| geser 200rb dari entertainment ke shopping | ask first → `$DOEEDD plan-move --from entertainment --to shopping --amount 200rb` |
+| bikin plan bulan depan | draft from `trend` and this month's `plan`, show a short list, ask, then one `plan-set` with a `--line` per category |
+| copy plan (after the payday message) | `$DOEEDD copy-plan` |
+| export transaksi / kirim datanya | `$DOEEDD export --entity transactions` → reply with its `reply` **including the `MEDIA:` line**, so Telegram attaches the CSV |
+
+`plan-set` warns when more is planned than income: relay it, don't block. Never change a plan
+without an explicit yes.
+
 ## Scheduled check (Hermes cron)
 
 A Hermes cron job ("doeedd daily check", 19:00 WIB, no agent) runs

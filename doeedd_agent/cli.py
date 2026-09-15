@@ -36,6 +36,7 @@ from .notify import SILENT, commit_notification, plan_notification
 from .notify_state import NotifyState
 from .outbox import Outbox
 from .parsing import AmbiguousError, ParseError, parse_amount, parse_date, today_in
+from .planning import move_budget, set_budget, show_plan
 from .receipts import ReceiptUploadError, google_service, upload_receipt
 from .seed import apply_seed, plan_seed
 from .state import StateStore
@@ -387,13 +388,67 @@ def cmd_unsnooze(app: App, args: argparse.Namespace) -> dict[str, Any]:
 
 def cmd_copy_plan(app: App, args: argparse.Namespace) -> dict[str, Any]:
     year, month = _month(args.month, app.today)
-    result = app.client.copy_budget(year, month, overwrite=args.overwrite)
+    try:
+        result = app.client.copy_budget(year, month, overwrite=args.overwrite)
+    except DoeeddError as error:
+        if error.kind != "not_found":
+            raise
+        return {"status": "nothing", "reply": f"No budget plan for {year}-{month:02d} to copy."}
     copied = sum(target["lines_copied"] for target in result["targets"])
     kept = sum(target["lines_skipped"] for target in result["targets"])
     reply = f"📋 Copied {copied} budget line(s) from {year}-{month:02d} to the next month."
     if kept:
         reply += f" Kept {kept} line(s) that were already planned there."
     return {"status": "copied", "reply": reply, "result": result}
+
+
+EXPORT_DIR = Path.home() / ".hermes" / "cache" / "documents"
+
+
+def _line_change(text: str) -> tuple[str, int]:
+    """``Food=1,5jt`` -> ``("Food", 1500000)``."""
+    name, separator, amount = text.rpartition("=")
+    if not separator or not name.strip():
+        raise ParseError(f"expected CATEGORY=AMOUNT, got {text!r}")
+    return name.strip(), parse_amount(amount)
+
+
+def cmd_plan(app: App, args: argparse.Namespace) -> dict[str, Any]:
+    year, month = _month(args.month, app.today)
+    return show_plan(app.client, year, month)
+
+
+def cmd_plan_set(app: App, args: argparse.Namespace) -> dict[str, Any]:
+    year, month = _month(args.month, app.today)
+    changes = [_line_change(text) for text in args.line]
+    aliases = app.aliases.merged()["category"]
+    return set_budget(app.client, app.recorder.names(), aliases, year, month, changes)
+
+
+def cmd_plan_move(app: App, args: argparse.Namespace) -> dict[str, Any]:
+    year, month = _month(args.month, app.today)
+    aliases = app.aliases.merged()["category"]
+    return move_budget(
+        app.client,
+        app.recorder.names(),
+        aliases,
+        year,
+        month,
+        args.source,
+        args.target,
+        parse_amount(args.amount),
+    )
+
+
+def cmd_export(app: App, args: argparse.Namespace) -> dict[str, Any]:
+    text = app.client.export_csv(args.entity)
+    EXPORT_DIR.mkdir(parents=True, exist_ok=True)
+    path = EXPORT_DIR / f"doeedd-{args.entity}-{app.today.isoformat()}.csv"
+    path.write_text(text, encoding="utf-8")
+    path.chmod(0o600)
+    rows = max(len(text.splitlines()) - 1, 0)
+    reply = f"📄 {args.entity} export ({rows} rows)\nMEDIA:{path}"
+    return {"status": "exported", "path": str(path), "rows": rows, "reply": reply}
 
 
 def cmd_migrate_sheets(app: App, args: argparse.Namespace) -> dict[str, Any]:
@@ -608,6 +663,25 @@ def build_parser() -> argparse.ArgumentParser:
     copy_plan = command("copy-plan", cmd_copy_plan, "copy a month's budget plan to the next month")
     copy_plan.add_argument("--month", help="YYYY-MM to copy from (default this month)")
     copy_plan.add_argument("--overwrite", action="store_true")
+
+    plan = command("plan", cmd_plan, "a month's budget plan")
+    plan.add_argument("--month", help="YYYY-MM (default this month)")
+    plan_set = command("plan-set", cmd_plan_set, "set budget lines (ask the owner first)")
+    plan_set.add_argument(
+        "--line", action="append", required=True, help='CATEGORY=AMOUNT, e.g. "Food=1,5jt"; repeat'
+    )
+    plan_set.add_argument("--month")
+    plan_move = command("plan-move", cmd_plan_move, "move planned money (ask the owner first)")
+    plan_move.add_argument("--from", dest="source", required=True)
+    plan_move.add_argument("--to", dest="target", required=True)
+    plan_move.add_argument("--amount", required=True)
+    plan_move.add_argument("--month")
+    export = command("export", cmd_export, "export data as a CSV file for Telegram")
+    export.add_argument(
+        "--entity",
+        default="transactions",
+        choices=("transactions", "budget_lines", "assets", "accounts", "categories"),
+    )
 
     migrate = command("migrate-sheets", cmd_migrate_sheets, "move the Sheets ledger into doeedd")
     migrate.add_argument("--apply", action="store_true", help="write (default is a dry run)")

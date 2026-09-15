@@ -274,6 +274,26 @@ class DoeeddClient:
         body = {"to": "next", "overwrite": overwrite}
         return self.request("POST", f"budgets/{year}/{month}/copy", json=body)
 
+    def budget_period(self, year: int, month: int) -> dict[str, Any] | None:
+        """One month's plan with lines and totals, or ``None`` when nothing was ever planned."""
+        try:
+            return self.request("GET", f"budgets/{year}/{month}")
+        except DoeeddError as error:
+            if error.kind == "not_found":
+                return None
+            raise
+
+    def put_budget_lines(
+        self, year: int, month: int, lines: list[Mapping[str, Any]]
+    ) -> dict[str, Any]:
+        """Upsert the given lines only (creates the month's period when missing)."""
+        body = [dict(line) for line in lines]
+        return self.request("PUT", f"budgets/{year}/{month}/lines", json=body)
+
+    def export_csv(self, entity: str) -> str:
+        """One entity (transactions, budget_lines, assets, accounts, categories) as CSV text."""
+        return self.send("GET", f"data/export/{entity}.csv").text
+
     def report_home(self, today: date) -> dict[str, Any]:
         """Payday, this month's remaining budget, recent entries and net worth."""
         return self.request("GET", "reports/home", params={"today": today})
