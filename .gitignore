@@ -1,0 +1,13 @@
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+.venv/
+.env
+.env.*
+!.env.example
+.finance-agent/
+*.sqlite3
+*.db
+.coverage
+htmlcov/
