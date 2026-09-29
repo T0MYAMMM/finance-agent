@@ -4,6 +4,8 @@ A local, provider neutral finance application built for agents and people. `main
 
 The application records expenses, income, transfers and refunds; archives receipts; finds missing receipts and possible duplicates; reports monthly totals; and marks a month reconciled. Data stays in a local SQLite ledger. Its CLI returns one JSON object per call for agent use.
 
+Google Drive receipts and Google Sheets migration are on `feat/doeedd-integration`. That branch includes `docs/GOOGLE_CLOUD_SETUP.md` with the Google Cloud and OAuth setup steps.
+
 ## Quick start
 
 Requires Python 3.11+. No cloud account is needed.
