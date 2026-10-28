@@ -66,3 +66,32 @@ def test_localhost_may_use_http(tmp_path: Path) -> None:
         tmp_path / "missing.env",
     )
     assert settings.base_url == "http://localhost:3000/api/v1"
+
+
+def test_google_ids_are_optional_and_read_from_env_file(tmp_path: Path) -> None:
+    env = tmp_path / ".env"
+    env.write_text(
+        "DOEEDD_BASE_URL=https://api.example.com\nDOEEDD_TOKEN=doe_x\n"
+        "DOEEDD_DRIVE_ROOT_FOLDER_ID=example-folder-id\n"
+    )
+    settings = load_settings({"DOEEDD_LEGACY_SHEET_ID": "example_sheet_id"}, env)
+    assert settings.drive_root_folder_id == "example-folder-id"
+    assert settings.legacy_sheet_id == "example_sheet_id"
+
+    bare = load_settings({"DOEEDD_BASE_URL": "https://a.example", "DOEEDD_TOKEN": "x"}, env)
+    assert bare.legacy_sheet_id is None
+    without_ids = load_settings(
+        {"DOEEDD_BASE_URL": "https://a.example", "DOEEDD_TOKEN": "x"}, tmp_path / "none.env"
+    )
+    assert without_ids.drive_root_folder_id is None
+
+
+@pytest.mark.parametrize("name", ["DOEEDD_DRIVE_ROOT_FOLDER_ID", "DOEEDD_LEGACY_SHEET_ID"])
+def test_a_url_instead_of_an_id_names_the_variable(name: str, tmp_path: Path) -> None:
+    environ = {
+        "DOEEDD_BASE_URL": "https://a.example",
+        "DOEEDD_TOKEN": "x",
+        name: "https://drive.google.com/drive/folders/example",
+    }
+    with pytest.raises(ConfigError, match=name):
+        load_settings(environ, tmp_path / "none.env")

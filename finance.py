@@ -10,8 +10,9 @@ Subcommands:
     reconcile   Mark all transactions in a month as Reconciled
     categories  List the valid categories
 
-Reads the spreadsheet/folder IDs from config.json (written by
-build_finance_system.py) so it never depends on Drive's slow name-search index.
+Reads the spreadsheet/folder IDs from DOEEDD_LEGACY_SHEET_ID and
+DOEEDD_DRIVE_ROOT_FOLDER_ID (environment or ~/.hermes/.env) so it never depends on
+Drive's slow name-search index; without them it falls back to a search by name.
 
 Examples:
     python finance.py upload ~/receipt.jpg --merchant Starbucks --amount 45000 --category "Food & Dining"
@@ -24,7 +25,7 @@ Examples:
 """
 
 import argparse
-import json
+import os
 import re
 import sys
 from datetime import datetime
@@ -59,14 +60,16 @@ C = {
 }
 N_COLS = 22
 
-CONFIG_PATH = Path(__file__).resolve().parent / "config.json"
-
-
 def _load_config():
-    try:
-        return json.loads(CONFIG_PATH.read_text())
-    except Exception:
-        return {}
+    """Sheet and Drive ids from the environment, then ~/.hermes/.env (never a tracked file)."""
+    from doeedd_agent.config import HERMES_ENV_FILE, read_env_file
+
+    env = read_env_file(HERMES_ENV_FILE)
+    env.update({k: v for k, v in os.environ.items() if k.startswith("DOEEDD_")})
+    return {
+        "spreadsheet_id": env.get("DOEEDD_LEGACY_SHEET_ID", "").strip(),
+        "root_folder_id": env.get("DOEEDD_DRIVE_ROOT_FOLDER_ID", "").strip(),
+    }
 
 
 def sanitize(s):

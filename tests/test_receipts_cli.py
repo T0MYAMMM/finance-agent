@@ -1,3 +1,4 @@
+import argparse
 import json
 import sys
 from datetime import date
@@ -6,8 +7,8 @@ from typing import Any
 
 import pytest
 
-from doeedd_agent.cli import main
-from doeedd_agent.config import load_settings
+from doeedd_agent.cli import main, open_app
+from doeedd_agent.config import Settings, load_settings
 from doeedd_agent.receipts import (
     ReceiptUploadError,
     drive_link,
@@ -101,6 +102,50 @@ def test_missing_google_client_is_a_clear_upload_error(
     monkeypatch.setitem(sys.modules, "googleapiclient.http", None)  # import now fails
     with pytest.raises(ReceiptUploadError, match="'drive' extra"):
         resumable_media(tmp_path / "r.jpg", "image/jpeg")
+
+
+def test_upload_without_a_root_folder_names_the_variable(tmp_path: Path) -> None:
+    image = tmp_path / "IMG_1.jpg"
+    image.write_bytes(b"\xff\xd8\xff")
+    drive = FakeDrive()
+    with pytest.raises(ReceiptUploadError, match="DOEEDD_DRIVE_ROOT_FOLDER_ID"):
+        upload_receipt(image, date(2026, 9, 10), None, 1_000, None, drive=drive, root_id=None)
+    assert drive.file_api.folders == []
+
+
+def offline_settings(tmp_path: Path, **environ: str) -> Settings:
+    """Settings for a doeedd that is never contacted."""
+    base = {
+        "DOEEDD_BASE_URL": "https://doeedd.example",
+        "DOEEDD_TOKEN": "doe_test",
+        "DOEEDD_STATE_DIR": str(tmp_path / "state"),
+    }
+    return load_settings(base | environ, tmp_path / "none.env")
+
+
+def test_cli_uploader_uses_the_configured_root_folder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("doeedd_agent.cli.load_settings", lambda: offline_settings(tmp_path))
+    app = open_app(argparse.Namespace())
+    try:
+        image = tmp_path / "IMG_1.jpg"
+        image.write_bytes(b"\xff\xd8\xff")
+        assert app.recorder.uploader is not None
+        with pytest.raises(ReceiptUploadError, match="DOEEDD_DRIVE_ROOT_FOLDER_ID"):
+            app.recorder.uploader(image, date(2026, 9, 10), None, 1_000, None)
+    finally:
+        app.client.close()
+
+
+def test_migrate_sheets_without_a_sheet_id_names_the_variable(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr("doeedd_agent.cli.load_settings", lambda: offline_settings(tmp_path))
+    assert main(["--json", "migrate-sheets"]) == 2
+    result = json.loads(capsys.readouterr().out)
+    assert result["status"] == "error"
+    assert "DOEEDD_LEGACY_SHEET_ID" in result["reply"]
 
 
 def test_cli_parse_commands_work_offline(capsys: pytest.CaptureFixture[str]) -> None:
