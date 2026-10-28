@@ -1,0 +1,30 @@
+# Gitleaks configuration: the default rules plus one for Google Drive and Sheets ids.
+# The default rules do not recognise these ids, which is how config.json went unnoticed.
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "google-drive-or-sheets-id"
+description = "Google Drive folder or Sheets id of a private resource"
+regex = '''(?i)(?:docs\.google\.com/spreadsheets/d/|drive\.google\.com/drive/folders/|"(?:spreadsheet_id|root_folder_id|receipts_folder_id|year_folder_id)"\s*:\s*"|DOEEDD_(?:DRIVE_ROOT_FOLDER_ID|LEGACY_SHEET_ID)\s*=\s*['"]?)([A-Za-z0-9_-]{25,})'''
+secretGroup = 1
+keywords = [
+  "docs.google.com/spreadsheets",
+  "drive.google.com/drive/folders",
+  "spreadsheet_id",
+  "root_folder_id",
+  "receipts_folder_id",
+  "year_folder_id",
+  "doeedd_drive_root_folder_id",
+  "doeedd_legacy_sheet_id",
+]
+
+# Known leak, still in history until it is purged (docs/SECURITY_CLEANUP.md).
+# Scoped to one file in one commit. Delete this block after the history rewrite.
+[[allowlists]]
+description = "config.json in the init commit, pending history purge"
+condition = "AND"
+targetRules = ["google-drive-or-sheets-id"]
+commits = ["4df79e6c1032ceb9d8adb8343ffe9482032ae325"]
+paths = ['''^config\.json$''']
