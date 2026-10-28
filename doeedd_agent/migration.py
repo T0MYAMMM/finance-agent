@@ -9,19 +9,17 @@ left alone, so a skipped row can be imported later once it is fixed in the sheet
 
 from __future__ import annotations
 
-import json
 import mimetypes
 import re
 from dataclasses import dataclass, field
 from datetime import date
-from pathlib import Path
 from typing import Any
 
 from .aliases import resolve
 from .capture import Names
 from .client import DoeeddClient, DoeeddError
 from .parsing import ParseError, parse_amount
-from .receipts import CONFIG_PATH, drive_link
+from .receipts import drive_link
 
 LEDGER_RANGE = "Transactions!A1:V5000"
 REF_PREFIX = "sheets:"
@@ -49,11 +47,6 @@ class SkippedRow:
     ref: str
     sheet_row: int
     reasons: list[str]
-
-
-def ledger_spreadsheet_id(config_path: Path = CONFIG_PATH) -> str:
-    """The ledger spreadsheet id persisted by ``build_finance_system.py``."""
-    return json.loads(config_path.read_text(encoding="utf-8"))["spreadsheet_id"]
 
 
 def read_ledger(sheets: Any, spreadsheet_id: str) -> list[dict[str, Any]]:

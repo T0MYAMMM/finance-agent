@@ -50,7 +50,15 @@ Configuration lives in `~/.hermes/.env` (never in git):
 DOEEDD_BASE_URL=https://<doeedd host>/api/v1
 DOEEDD_TOKEN=doe_…            # create with doeedd's `pnpm cli create-token --name hermes-prod`
 DOEEDD_TIMEZONE=Asia/Jakarta
+DOEEDD_DRIVE_ROOT_FOLDER_ID=<drive-folder-id>   # "Personal Finance" folder; needed for receipt uploads
+DOEEDD_LEGACY_SHEET_ID=<sheet-id>               # old Sheets ledger; needed by migrate-sheets only
 ```
+
+The two Google ids are the bare ids from the folder and Sheet URLs
+(`drive.google.com/drive/folders/<id>`, `docs.google.com/spreadsheets/d/<id>`), not the URLs.
+Without the folder id a receipt upload fails with `receipt_failed` and nothing is recorded;
+without the Sheet id `migrate-sheets` needs `--spreadsheet-id`. They used to live in a tracked
+`config.json`, which is gone: see [docs/SECURITY_CLEANUP.md](docs/SECURITY_CLEANUP.md).
 
 Local state (alias overrides, last capture for undo, offline outbox) is kept in
 `~/.hermes/doeedd/`, readable by the owner only.
@@ -95,10 +103,13 @@ State lives in `~/.hermes/doeedd/notify_state.json`. Inspect with
 ## Development
 
 ```bash
-python -m pip install httpx pytest ruff
-ruff format doeedd_agent tests && ruff check doeedd_agent tests
-python -m pytest -q
+python -m pip install -e '.[dev]'          # add the drive extra for real uploads: '.[dev,drive]'
+ruff format doeedd_agent tests && ruff check .
+python -m pytest -q --cov=doeedd_agent
 ```
+
+Tests need no network, no Google client and no `~/.hermes` files. CI runs the same checks on
+Python 3.11 and 3.12 and scans every commit for secrets with gitleaks (`.gitleaks.toml`).
 
 Deploy: commit, then update `~/finance-system` on the VM (`git pull`, or a git bundle when the
 branch is not pushed). Skill files are picked up automatically; restart the gateway

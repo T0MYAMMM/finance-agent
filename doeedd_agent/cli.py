@@ -15,6 +15,7 @@ import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -22,13 +23,12 @@ from . import queries
 from .aliases import AliasStore, resolve
 from .capture import CaptureRequest, EditRequest, Outcome, Recorder
 from .client import DoeeddClient, DoeeddError
-from .config import ConfigError, Settings, load_settings
+from .config import HERMES_ENV_FILE, LEGACY_SHEET_ENV, ConfigError, Settings, load_settings
 from .formatting import idr, short_date
 from .holdings import account_balances, create_asset, list_assets, record_valuation
 from .migration import (
     apply_migration,
     expense_total,
-    ledger_spreadsheet_id,
     plan_migration,
     read_ledger,
 )
@@ -69,7 +69,7 @@ def open_app(args: argparse.Namespace) -> App:
         aliases,
         StateStore(state_dir / "state.json"),
         Outbox(state_dir / "outbox.json"),
-        uploader=upload_receipt,
+        uploader=partial(upload_receipt, root_id=settings.drive_root_folder_id),
         notify=notify,
     )
     today = (
@@ -522,7 +522,12 @@ def cmd_balances(app: App, args: argparse.Namespace) -> dict[str, Any]:
 
 def cmd_migrate_sheets(app: App, args: argparse.Namespace) -> dict[str, Any]:
     """Move the Personal Finance Tracker ledger into doeedd (dry run unless --apply)."""
-    spreadsheet_id = args.spreadsheet_id or ledger_spreadsheet_id()
+    spreadsheet_id = args.spreadsheet_id or app.settings.legacy_sheet_id
+    if not spreadsheet_id:
+        raise ConfigError(
+            f"Missing {LEGACY_SHEET_ENV}; set it in the environment or {HERMES_ENV_FILE}, "
+            "or pass --spreadsheet-id"
+        )
     rows = read_ledger(google_service("sheets", "v4"), spreadsheet_id)
     names = app.recorder.names()
     planned, skipped = plan_migration(rows, names, app.aliases.merged())
