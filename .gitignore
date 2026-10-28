@@ -1,3 +1,15 @@
 __pycache__/
 .pytest_cache/
 .ruff_cache/
+*.egg-info/
+.coverage
+htmlcov/
+
+# Local config, secrets and agent state (never commit)
+.env
+config.json
+*.sqlite3*
+receipts/
+outbox*.json
+state.json
+notify_state.json

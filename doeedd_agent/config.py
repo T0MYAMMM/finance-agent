@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -13,6 +14,9 @@ DEFAULT_STATE_DIR = Path.home() / ".hermes" / "doeedd"
 DEFAULT_TIMEZONE = "Asia/Jakarta"
 ENV_PREFIX = "DOEEDD_"
 LOCAL_URL_PREFIXES = ("http://localhost", "http://127.0.0.1")
+DRIVE_ROOT_FOLDER_ENV = "DOEEDD_DRIVE_ROOT_FOLDER_ID"
+LEGACY_SHEET_ENV = "DOEEDD_LEGACY_SHEET_ID"
+_GOOGLE_ID = re.compile(r"[A-Za-z0-9_-]+")
 
 
 class ConfigError(RuntimeError):
@@ -27,6 +31,8 @@ class Settings:
     token: str
     timezone: ZoneInfo
     state_dir: Path
+    drive_root_folder_id: str | None = None  # holds Receipts/; needed only for uploads
+    legacy_sheet_id: str | None = None  # the old Sheets ledger; needed only by migrate-sheets
 
 
 def read_env_file(path: Path, prefix: str = ENV_PREFIX) -> dict[str, str]:
@@ -43,6 +49,16 @@ def read_env_file(path: Path, prefix: str = ENV_PREFIX) -> dict[str, str]:
         if key.startswith(prefix):
             values[key] = value.strip().strip("'\"")
     return values
+
+
+def google_id(env: Mapping[str, str], name: str) -> str | None:
+    """An optional Drive or Sheets id from ``env``; a URL or anything but a bare id is rejected."""
+    value = env.get(name, "").strip()
+    if not value:
+        return None
+    if not _GOOGLE_ID.fullmatch(value):
+        raise ConfigError(f"{name} must be a bare Google id (letters, digits, - or _), not a URL")
+    return value
 
 
 def load_settings(
@@ -69,4 +85,11 @@ def load_settings(
         raise ConfigError(f"Unknown DOEEDD_TIMEZONE {timezone_name!r}") from exc
 
     state_dir = Path(env.get("DOEEDD_STATE_DIR") or DEFAULT_STATE_DIR).expanduser()
-    return Settings(base_url=base_url, token=token, timezone=timezone, state_dir=state_dir)
+    return Settings(
+        base_url=base_url,
+        token=token,
+        timezone=timezone,
+        state_dir=state_dir,
+        drive_root_folder_id=google_id(env, DRIVE_ROOT_FOLDER_ENV),
+        legacy_sheet_id=google_id(env, LEGACY_SHEET_ENV),
+    )

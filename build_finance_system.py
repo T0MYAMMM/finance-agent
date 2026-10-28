@@ -18,7 +18,6 @@ Usage:
 """
 
 import argparse
-import json
 import sys
 import os
 from datetime import datetime
@@ -572,15 +571,9 @@ def main():
     print(f"  Spreadsheet: {url}")
     print(f"  Drive root:  https://drive.google.com/drive/folders/{folders['root']}")
 
-    cfg_path = Path(__file__).resolve().parent / "config.json"
-    cfg_path.write_text(json.dumps({
-        "spreadsheet_id": ss_id,
-        "spreadsheet_url": url,
-        "root_folder_id": folders["root"],
-        "receipts_folder_id": folders["receipts"],
-        "year_folder_id": folders["year"],
-    }, indent=2))
-    print(f"Saved config: {cfg_path}")
+    print("\nAdd these to ~/.hermes/.env (never commit them):")
+    print(f"  DOEEDD_LEGACY_SHEET_ID={ss_id}")
+    print(f"  DOEEDD_DRIVE_ROOT_FOLDER_ID={folders['root']}")
     print("\nNext: use finance.py to record transactions and upload receipts.")
 
 
