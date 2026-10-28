@@ -12,6 +12,7 @@ import logging
 import mimetypes
 import re
 import sys
+from collections.abc import Callable
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -33,6 +34,9 @@ _SKILL_SCRIPT_DIRS = (
 
 class ReceiptUploadError(RuntimeError):
     """The receipt could not be stored in Drive; nothing was recorded."""
+
+
+MediaFactory = Callable[[Path, str], Any]
 
 
 def sanitize(text: str | None) -> str:
@@ -89,6 +93,17 @@ def drive_service() -> Any:
     return google_service("drive", "v3")
 
 
+def resumable_media(path: Path, mime_type: str) -> Any:
+    """A resumable Drive upload body for ``path`` (needs the ``drive`` extra)."""
+    try:
+        from googleapiclient.http import MediaFileUpload
+    except ImportError as exc:
+        raise ReceiptUploadError(
+            "Google API client not installed; install the 'drive' extra"
+        ) from exc
+    return MediaFileUpload(str(path), mimetype=mime_type, resumable=True)
+
+
 def find_or_create_folder(drive: Any, name: str, parent_id: str) -> str:
     """Reuse a child folder by name, creating it on first use."""
     escaped = name.replace("\\", "\\\\").replace("'", "\\'")
@@ -113,6 +128,7 @@ def upload_receipt(
     *,
     drive: Any = None,
     root_id: str | None = None,
+    media: MediaFactory = resumable_media,
 ) -> dict[str, Any]:
     """Upload a receipt into its month folder and return ``file_id``, ``name``, ``url``."""
     source = path.expanduser()
@@ -126,14 +142,12 @@ def upload_receipt(
         month_name = f"{occurred_on.month:02d}-{occurred_on.strftime('%B')}"
         month = find_or_create_folder(drive, month_name, year)
 
-        from googleapiclient.http import MediaFileUpload  # imported with the Google client
-
         mime_type = mimetypes.guess_type(source.name)[0] or "application/octet-stream"
         name = receipt_filename(occurred_on, merchant, amount, category, source.suffix)
-        media = MediaFileUpload(str(source), mimetype=mime_type, resumable=True)
+        body = media(source, mime_type)
         created = (
             drive.files()
-            .create(body={"name": name, "parents": [month]}, media_body=media, fields="id, name")
+            .create(body={"name": name, "parents": [month]}, media_body=body, fields="id, name")
             .execute()
         )
     except ReceiptUploadError:
