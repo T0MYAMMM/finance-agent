@@ -13,3 +13,7 @@ receipts/
 outbox*.json
 state.json
 notify_state.json
+.venv/
+.env.*
+.finance-agent/
+*.db
