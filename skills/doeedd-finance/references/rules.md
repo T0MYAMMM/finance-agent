@@ -39,8 +39,8 @@ value is understood without writing anything.
 When `vision_analyze` cannot read a local image:
 
 ```bash
-cd ~/.hermes/cache/images
-~/.hermes/hermes-agent/venv/bin/python - <<'PY'
+cd "${HERMES_HOME:-$HOME/.hermes}/cache/images"
+"${HERMES_PYTHON:-python3}" - <<'PY'
 from PIL import Image, ImageEnhance, ImageOps
 name = "IMG.jpg"  # the receipt file
 image = Image.open(name).convert("L")

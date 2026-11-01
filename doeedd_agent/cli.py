@@ -23,7 +23,14 @@ from . import queries
 from .aliases import AliasStore, resolve
 from .capture import CaptureRequest, EditRequest, Outcome, Recorder
 from .client import DoeeddClient, DoeeddError
-from .config import HERMES_ENV_FILE, LEGACY_SHEET_ENV, ConfigError, Settings, load_settings
+from .config import (
+    HERMES_ENV_FILE,
+    LEGACY_SHEET_ENV,
+    ConfigError,
+    Settings,
+    hermes_home,
+    load_settings,
+)
 from .formatting import idr, short_date
 from .holdings import account_balances, create_asset, list_assets, record_valuation
 from .migration import (
@@ -403,7 +410,7 @@ def cmd_copy_plan(app: App, args: argparse.Namespace) -> dict[str, Any]:
     return {"status": "copied", "reply": reply, "result": result}
 
 
-EXPORT_DIR = Path.home() / ".hermes" / "cache" / "documents"
+EXPORT_DIR = hermes_home() / "cache" / "documents"
 
 
 def _line_change(text: str) -> tuple[str, int]:

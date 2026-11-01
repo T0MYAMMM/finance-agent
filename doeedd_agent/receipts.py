@@ -16,19 +16,17 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from .config import DRIVE_ROOT_FOLDER_ENV, HERMES_ENV_FILE
+from .config import DRIVE_ROOT_FOLDER_ENV, HERMES_ENV_FILE, hermes_home
 
 log = logging.getLogger(__name__)
 
+_GOOGLE_SKILL = Path("skills") / "productivity" / "google-workspace" / "scripts"
+# Synced user copy first, then the bundled copy: a source install keeps it under
+# ``<hermes home>/hermes-agent``, the Docker image under ``/opt/hermes``.
 _SKILL_SCRIPT_DIRS = (
-    Path.home() / ".hermes" / "skills" / "productivity" / "google-workspace" / "scripts",
-    Path.home()
-    / ".hermes"
-    / "hermes-agent"
-    / "skills"
-    / "productivity"
-    / "google-workspace"
-    / "scripts",
+    hermes_home() / _GOOGLE_SKILL,
+    hermes_home() / "hermes-agent" / _GOOGLE_SKILL,
+    Path("/opt/hermes") / _GOOGLE_SKILL,
 )
 
 

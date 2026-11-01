@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from doeedd_agent.config import ConfigError, load_settings, read_env_file
+from doeedd_agent.config import ConfigError, hermes_home, load_settings, read_env_file
 from doeedd_agent.formatting import idr, idr_short, percent, short_date
 
 
@@ -95,3 +95,13 @@ def test_a_url_instead_of_an_id_names_the_variable(name: str, tmp_path: Path) ->
     }
     with pytest.raises(ConfigError, match=name):
         load_settings(environ, tmp_path / "none.env")
+
+
+def test_hermes_home_follows_the_variable() -> None:
+    assert hermes_home({"HERMES_HOME": "/opt/data"}) == Path("/opt/data")
+    assert hermes_home({"HERMES_HOME": "  /opt/data  "}) == Path("/opt/data")
+
+
+def test_hermes_home_defaults_to_dot_hermes() -> None:
+    assert hermes_home({}) == Path.home() / ".hermes"
+    assert hermes_home({"HERMES_HOME": "   "}) == Path.home() / ".hermes"
