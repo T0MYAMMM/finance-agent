@@ -36,7 +36,13 @@ Telegram ─► Hermes gateway ─► skill doeedd-finance ─► doeedd.py ─�
 | `tests/` | pytest suite (no network) |
 | `finance.py`, `build_finance_system.py`, `gws_auth.py`, `DESIGN.md`, `MANUAL.md` | Legacy Sheets system |
 
-## Setup on the Hermes VM
+## Production: Railway
+
+Production runs as the Railway service `hermes` built from `deploy/hermes/Dockerfile`; settings,
+variables and one-time setup are in [`deploy/hermes/README.md`](deploy/hermes/README.md). There,
+variables come from Railway instead of `~/.hermes/.env`, and `HERMES_HOME` is `/opt/data`.
+
+## Setup on a Hermes host (without Docker)
 
 ```bash
 cd ~/finance-system                                     # this repo

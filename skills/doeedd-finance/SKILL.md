@@ -5,6 +5,17 @@ version: 1.0.0
 author: Hermes Agent
 license: MIT
 platforms: [linux]
+# Hermes strips secrets from terminal children unless a skill declares them.
+required_environment_variables:
+  - name: DOEEDD_BASE_URL
+    help: doeedd API base, e.g. https://<host>/api/v1
+  - name: DOEEDD_TOKEN
+    help: doeedd API token (pnpm cli create-token)
+  - name: DOEEDD_TIMEZONE
+    optional: true
+  - name: DOEEDD_DRIVE_ROOT_FOLDER_ID
+    help: Drive "Personal Finance" folder id; needed for receipt uploads
+    optional: true
 metadata:
   hermes:
     tags: [finance, budgeting, receipts, doeedd, idr, indonesia]
@@ -20,7 +31,7 @@ and write goes through one CLI, which resolves names, checks duplicates, uploads
 Google Drive, and returns JSON with a `status` to branch on and a `reply` to relay:
 
 ```bash
-DOEEDD="$HOME/.hermes/hermes-agent/venv/bin/python $HOME/finance-system/doeedd.py --json"
+DOEEDD="${HERMES_PYTHON:-python3} ${FINANCE_AGENT_DIR:-$HOME/finance-system}/doeedd.py --json"
 ```
 
 Never add up transactions yourself and never edit the Google Sheet: it is being retired.
@@ -73,7 +84,7 @@ explicit request (plans and categories always need a yes first).
 
 ## Capture: receipt photo, screenshot or PDF
 
-1. Find the file: Telegram images are in `~/.hermes/cache/images/` (newest first).
+1. Find the file: Telegram images are in `${HERMES_HOME:-~/.hermes}/cache/images/` (newest first).
 2. Read it. `vision_analyze` often fails on local files — then OCR with tesseract exactly as in
    `references/rules.md#ocr`. OCR text is a draft: treat it as medium confidence.
 3. Extract merchant, date, total and order lines. One screenshot may hold several orders: one
@@ -162,7 +173,7 @@ without an explicit yes.
 ## Scheduled check (Hermes cron)
 
 A Hermes cron job ("doeedd daily check", 19:00 WIB, no agent) runs
-`~/.hermes/scripts/doeedd_notify.py`, which calls `doeedd.py notify --empty-when-silent` and
+`${HERMES_HOME:-~/.hermes}/scripts/doeedd_notify.py`, which calls `doeedd.py notify --empty-when-silent` and
 delivers its output verbatim; empty output means nothing is sent. The CLI already enforces quiet
 hours, one message a day, once-per-month alerts and snooze. Never send scheduled finance messages
 any other way. When the owner answers one ("budget", "review", a balance, "copy"), handle it with

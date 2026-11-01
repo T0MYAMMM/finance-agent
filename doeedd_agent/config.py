@@ -9,8 +9,16 @@ from dataclasses import dataclass
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-HERMES_ENV_FILE = Path.home() / ".hermes" / ".env"
-DEFAULT_STATE_DIR = Path.home() / ".hermes" / "doeedd"
+
+def hermes_home(environ: Mapping[str, str] | None = None) -> Path:
+    """Hermes's data directory: ``$HERMES_HOME`` (``/opt/data`` in Docker), else ``~/.hermes``."""
+    source = os.environ if environ is None else environ
+    value = source.get("HERMES_HOME", "").strip()
+    return Path(value).expanduser() if value else Path.home() / ".hermes"
+
+
+HERMES_ENV_FILE = hermes_home() / ".env"
+DEFAULT_STATE_DIR = hermes_home() / "doeedd"
 DEFAULT_TIMEZONE = "Asia/Jakarta"
 ENV_PREFIX = "DOEEDD_"
 LOCAL_URL_PREFIXES = ("http://localhost", "http://127.0.0.1")
