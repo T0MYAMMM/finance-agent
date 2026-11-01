@@ -39,10 +39,11 @@ def read_env(path: Path) -> dict[str, str]:
 
 
 def load_settings(
-    environ: Mapping[str, str] | None = None, env_file: Path = PROJECT_ENV
+    environ: Mapping[str, str] | None = None, env_file: Path | None = None
 ) -> Settings:
+    """Resolve settings: process environment, then ``env_file`` (checkout ``.env``), then user."""
     values = read_env(USER_ENV)
-    values.update(read_env(env_file))
+    values.update(read_env(PROJECT_ENV if env_file is None else env_file))
     values.update(
         {
             k: v
