@@ -7,18 +7,19 @@ Files land in ``Personal Finance/Receipts/<year>/<MM-Month>/`` named
 
 from __future__ import annotations
 
-import json
 import logging
 import mimetypes
 import re
 import sys
+from collections.abc import Callable
 from datetime import date
 from pathlib import Path
 from typing import Any
 
+from .config import DRIVE_ROOT_FOLDER_ENV, HERMES_ENV_FILE
+
 log = logging.getLogger(__name__)
 
-CONFIG_PATH = Path(__file__).resolve().parent.parent / "config.json"
 _SKILL_SCRIPT_DIRS = (
     Path.home() / ".hermes" / "skills" / "productivity" / "google-workspace" / "scripts",
     Path.home()
@@ -33,6 +34,9 @@ _SKILL_SCRIPT_DIRS = (
 
 class ReceiptUploadError(RuntimeError):
     """The receipt could not be stored in Drive; nothing was recorded."""
+
+
+MediaFactory = Callable[[Path, str], Any]
 
 
 def sanitize(text: str | None) -> str:
@@ -62,14 +66,6 @@ def drive_link(file_id: str) -> str:
     return f"https://drive.google.com/file/d/{file_id}/view"
 
 
-def root_folder_id(config_path: Path = CONFIG_PATH) -> str:
-    """The ``Personal Finance`` folder id persisted by ``build_finance_system.py``."""
-    try:
-        return json.loads(config_path.read_text(encoding="utf-8"))["root_folder_id"]
-    except (OSError, KeyError, ValueError) as exc:
-        raise ReceiptUploadError(f"root_folder_id missing from {config_path}") from exc
-
-
 def google_service(api: str, version: str) -> Any:
     """A Google API client authorised by Hermes's google-workspace skill."""
     scripts = next((path for path in _SKILL_SCRIPT_DIRS if path.exists()), None)
@@ -87,6 +83,17 @@ def google_service(api: str, version: str) -> Any:
 def drive_service() -> Any:
     """A Drive v3 client."""
     return google_service("drive", "v3")
+
+
+def resumable_media(path: Path, mime_type: str) -> Any:
+    """A resumable Drive upload body for ``path`` (needs the ``drive`` extra)."""
+    try:
+        from googleapiclient.http import MediaFileUpload
+    except ImportError as exc:
+        raise ReceiptUploadError(
+            "Google API client not installed; install the 'drive' extra"
+        ) from exc
+    return MediaFileUpload(str(path), mimetype=mime_type, resumable=True)
 
 
 def find_or_create_folder(drive: Any, name: str, parent_id: str) -> str:
@@ -113,27 +120,29 @@ def upload_receipt(
     *,
     drive: Any = None,
     root_id: str | None = None,
+    media: MediaFactory = resumable_media,
 ) -> dict[str, Any]:
-    """Upload a receipt into its month folder and return ``file_id``, ``name``, ``url``."""
+    """Upload a receipt into ``root_id``'s month folder; return ``file_id``, ``name``, ``url``."""
     source = path.expanduser()
     if not source.is_file():
         raise ReceiptUploadError(f"receipt file not found: {source.name}")
+    if not root_id:
+        raise ReceiptUploadError(
+            f"Missing {DRIVE_ROOT_FOLDER_ENV}; set it in the environment or {HERMES_ENV_FILE}"
+        )
     try:
         drive = drive or drive_service()
-        root = root_id or root_folder_id()
-        receipts = find_or_create_folder(drive, "Receipts", root)
+        receipts = find_or_create_folder(drive, "Receipts", root_id)
         year = find_or_create_folder(drive, str(occurred_on.year), receipts)
         month_name = f"{occurred_on.month:02d}-{occurred_on.strftime('%B')}"
         month = find_or_create_folder(drive, month_name, year)
 
-        from googleapiclient.http import MediaFileUpload  # imported with the Google client
-
         mime_type = mimetypes.guess_type(source.name)[0] or "application/octet-stream"
         name = receipt_filename(occurred_on, merchant, amount, category, source.suffix)
-        media = MediaFileUpload(str(source), mimetype=mime_type, resumable=True)
+        body = media(source, mime_type)
         created = (
             drive.files()
-            .create(body={"name": name, "parents": [month]}, media_body=media, fields="id, name")
+            .create(body={"name": name, "parents": [month]}, media_body=body, fields="id, name")
             .execute()
         )
     except ReceiptUploadError:

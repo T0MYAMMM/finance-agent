@@ -271,7 +271,7 @@ This sets every transaction in that month to `Reconciled` and stamps the date.
 | Problem | Fix |
 |---------|-----|
 | `NOT_AUTHENTICATED` / token expired | `python gws_auth.py --check`; if it fails, re-authorize with `gws_auth.py` (see README) |
-| `spreadsheet ... not found` | Make sure `config.json` exists in `~/finance-system/` (it stores the sheet ID) |
+| `spreadsheet ... not found` | Set `DOEEDD_LEGACY_SHEET_ID` (and `DOEEDD_DRIVE_ROOT_FOLDER_ID`) in `~/.hermes/.env` |
 | Date error | Use `YYYY-MM-DD` format |
 | Amount error | Amount must be a positive number |
 | Category not in list | Add it to the **Categories** tab first |
