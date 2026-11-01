@@ -1,58 +1,116 @@
-# Finance Agent Toolkit
+# Finance Agent
 
-A local, provider neutral finance application built for agents and people. `main` has no doeedd dependency. The optional doeedd integration is maintained on the [`feat/doeedd-integration` branch](../../tree/feat/doeedd-integration).
+The Hermes assistant for the owner's money. Hermes (Telegram) understands messages, receipts and
+questions; this repo gives it one command line, `doeedd.py`, that records and reads everything in
+**doeedd**, the owner's budgeting platform. Receipts stay in Google Drive and are linked to
+transactions in doeedd.
 
-The application records expenses, income, transfers and refunds; archives receipts; finds missing receipts and possible duplicates; reports monthly totals; and marks a month reconciled. Data stays in a local SQLite ledger. Its CLI returns one JSON object per call for agent use.
+Plan and decisions: `../doeedd-agent/` (start at its `README.md`).
 
-Google Drive receipts and Google Sheets migration are on `feat/doeedd-integration`. That branch includes `docs/GOOGLE_CLOUD_SETUP.md` with the Google Cloud and OAuth setup steps.
+## How it fits together
 
-## Quick start
-
-Requires Python 3.11+. No cloud account is needed.
-
-```bash
-python -m venv .venv
-. .venv/bin/activate
-python -m pip install -e '.[dev]'
-cp .env.example .env                    # optional; defaults work without it
-finance-agent --json health
-finance-agent --json record --type Expense --amount 45000 --merchant "Cafe" --category "Food & Dining" --key chat:123:1
-finance-agent --json summary
+```
+Telegram ─► Hermes gateway ─► skill doeedd-finance ─► doeedd.py ─► doeedd API (Railway)
+                                                          └────► Google Drive (receipts)
 ```
 
-The installed `finance-agent` command and `python -m finance_agent` work from any directory. `python finance.py` is a compatibility entry point when run from this checkout. CLI help: `finance-agent --help` and `finance-agent record --help`.
+- **doeedd is the ledger.** Totals, budget usage, payday and net worth come from its reports;
+  the CLI never recomputes them.
+- **The Google Sheet is retired.** `finance.py` and `build_finance_system.py` are kept until the
+  migration is verified, then removed.
+
+## Files
+
+| Path | Purpose |
+|---|---|
+| `doeedd.py` | CLI entry point used by the skill |
+| `doeedd_agent/client.py` | doeedd API client (bearer token, retries for safe calls only) |
+| `doeedd_agent/parsing.py` | Indonesian amounts (`25rb`, `1,5jt`, `Rp45.000`) and dates (`kemarin`, `3/9`) |
+| `doeedd_agent/capture.py` | Record, edit, undo, restore, attach; duplicate check; offline outbox |
+| `doeedd_agent/queries.py` | Answers from doeedd reports (home, monthly, trend, find…) |
+| `doeedd_agent/aliases.py` | Word → category/account memory and merchant defaults |
+| `doeedd_agent/receipts.py` | Drive upload into `Personal Finance/Receipts/YYYY/MM-Month/` |
+| `doeedd_agent/migration.py` | One-time move of the Sheets ledger into doeedd |
+| `doeedd_agent/seed.py` | Default categories and accounts |
+| `skills/doeedd-finance/` | The Hermes skill (`SKILL.md`, `references/rules.md`) |
+| `tests/` | pytest suite (no network) |
+| `finance.py`, `build_finance_system.py`, `gws_auth.py`, `DESIGN.md`, `MANUAL.md` | Legacy Sheets system |
+
+## Setup on the Hermes VM
+
+```bash
+cd ~/finance-system                                     # this repo
+PY=~/.hermes/hermes-agent/venv/bin/python               # Python 3.11 with httpx + Google client
+ln -sfn ~/finance-system/skills/doeedd-finance ~/.hermes/skills/finance/doeedd-finance
+```
+
+Configuration lives in `~/.hermes/.env` (never in git):
+
+```
+DOEEDD_BASE_URL=https://<doeedd host>/api/v1
+DOEEDD_TOKEN=doe_…            # create with doeedd's `pnpm cli create-token --name hermes-prod`
+DOEEDD_TIMEZONE=Asia/Jakarta
+DOEEDD_DRIVE_ROOT_FOLDER_ID=<drive-folder-id>   # "Personal Finance" folder; needed for receipt uploads
+DOEEDD_LEGACY_SHEET_ID=<sheet-id>               # old Sheets ledger; needed by migrate-sheets only
+```
+
+The two Google ids are the bare ids from the folder and Sheet URLs
+(`drive.google.com/drive/folders/<id>`, `docs.google.com/spreadsheets/d/<id>`), not the URLs.
+Without the folder id a receipt upload fails with `receipt_failed` and nothing is recorded;
+without the Sheet id `migrate-sheets` needs `--spreadsheet-id`. They used to live in a tracked
+`config.json`, which is gone: see [docs/SECURITY_CLEANUP.md](docs/SECURITY_CLEANUP.md).
+
+Local state (alias overrides, last capture for undo, offline outbox) is kept in
+`~/.hermes/doeedd/`, readable by the owner only.
 
 ## Everyday commands
 
 ```bash
-finance-agent --json categories
-finance-agent --json record --amount 45000 --merchant Cafe --category "Food & Dining" --account BCA
-finance-agent --json record --type Transfer --amount 500000 --account BCA --to-account GoPay
-finance-agent --json upload /path/to/receipt.jpg --merchant Cafe --amount 45000
-finance-agent --json record --amount 45000 --receipt <receipt_id> --key chat:123:2
-finance-agent --json find --q Cafe --month 2026-09
-finance-agent --json missing --month 2026-09
-finance-agent --json duplicates --month 2026-09
-finance-agent --json summary --month 2026-09
-finance-agent --json reconcile --month 2026-09
-finance-agent --json attach --id <transaction_id> --receipt /path/to/receipt.pdf
+$PY doeedd.py health                                   # token and API check
+$PY doeedd.py add --amount 25rb --merchant "Tomoro Coffee" --key telegram:<chat>:<msg>:1
+$PY doeedd.py add --type transfer --amount 500rb --account BCA --to-account GoPay
+$PY doeedd.py add --amount "Rp45.000" --category food --receipt ~/.hermes/cache/images/x.jpg
+$PY doeedd.py undo | restore | edit --category shopping --learn
+$PY doeedd.py home | monthly [--category food] | summary | trend | networth | goals
+$PY doeedd.py find --q grab --from senin [--no-receipt]
+$PY doeedd.py flush                                    # send writes queued while offline
+$PY doeedd.py review | approve --all | approve --id <id>   # weekly review of new entries
+$PY doeedd.py receipts [--id <id>]                     # Drive links behind an entry
+$PY doeedd.py assets | valuation --asset BCA --amount 12,5jt | create-asset --name …
+$PY doeedd.py notify [--dry-run] | snooze --days 7 | unsnooze   # proactive messages
+$PY doeedd.py copy-plan [--month YYYY-MM]              # copy a budget plan to the next month
+$PY doeedd.py migrate-sheets [--apply]                 # one-time ledger move (dry run by default)
 ```
 
-`record` is also available as `add`. Use a stable `--key` from the source message to avoid double entry on retries. A potential duplicate is **recorded and flagged** for review; nothing is silently deleted. `summary` separates currencies and treats transfers as neutral and refunds as reduced expenses. The command reports `status` and `reply`; use the structured fields for decisions. Invalid input returns exit code 2 and `status: error`.
+Add `--json` for machine-readable output: every command returns `status` and `reply`.
 
-## Configuration and files
+## Daily check (Hermes cron)
 
-Defaults are `~/.local/share/finance-agent`, `IDR`, and `Asia/Jakarta`. Copy [.env.example](.env.example) to `.env` in this checkout, put it at `~/.config/finance-agent/.env` for an installed command, or set environment variables in the process. Precedence: process environment, checkout `.env`, user config `.env`, defaults. Set `FINANCE_DATA_DIR` to an absolute path if changing storage. Never commit private data.
+A no-agent Hermes cron job, **"doeedd daily check"**, runs `0 20 * * *` in the VM's timezone
+(Asia/Shanghai, i.e. 19:00 in Jakarta) and delivers to Telegram. It executes
+`~/.hermes/scripts/doeedd_notify.py`, which calls `doeedd.py notify --empty-when-silent`:
 
-The data directory contains `finance.sqlite3` and `receipts/YYYY/MM/`. Keep a backup of the **whole directory**. Receipt filenames use sanitized merchant and amount plus a content hash. The original receipt file is left untouched. No network request is made by the generic app.
+- at most one message a day: budget alert, then payday, then the Sunday digest, then the
+  balance prompt on the 1st;
+- quiet hours 21:30–07:00 WIB, snooze, and budget alerts once per category and level per month
+  (a warning already shown in a capture reply counts);
+- empty output (nothing delivered) when nothing is due; a doeedd outage stays silent until the
+  third failed check in a row.
 
-## For agents and maintainers
+State lives in `~/.hermes/doeedd/notify_state.json`. Inspect with
+`hermes cron list` / `hermes cron runs`; preview with `$PY doeedd.py notify --dry-run`.
 
-Read [AGENTS.md](AGENTS.md) before using this repository from an agent. [Architecture and restructuring plan](docs/ARCHITECTURE.md) maps modules, extension points, and the branch split. Finance data is personal: keep tokens, account numbers, receipts, and real transaction examples out of GitHub issues.
+## Development
 
 ```bash
-python -m pip install -e '.[dev]'
-ruff check finance_agent tests
-ruff format --check finance_agent tests
-python -m pytest -q
+python -m pip install -e '.[dev]'          # add the drive extra for real uploads: '.[dev,drive]'
+ruff format doeedd_agent tests && ruff check .
+python -m pytest -q --cov=doeedd_agent
 ```
+
+Tests need no network, no Google client and no `~/.hermes` files. CI runs the same checks on
+Python 3.11 and 3.12 and scans every commit for secrets with gitleaks (`.gitleaks.toml`).
+
+Deploy: commit, then update `~/finance-system` on the VM (`git pull`, or a git bundle when the
+branch is not pushed). Skill files are picked up automatically; restart the gateway
+(`systemctl --user restart hermes-gateway`) only if a new skill does not appear.

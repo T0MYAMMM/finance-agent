@@ -22,7 +22,7 @@ jobs:
       - run: ruff check .
       - run: ruff format --check .
       # Coverage is reported, not enforced.
-      - run: python -m pytest -q --cov=finance_agent --cov-report=term
+      - run: python -m pytest -q --cov=doeedd_agent --cov-report=term
 
   secrets:
     runs-on: ubuntu-latest
